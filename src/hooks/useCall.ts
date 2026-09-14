@@ -22,14 +22,14 @@ export function useCall() {
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const participantIdRef = useRef(
-    localStorage.getItem("callio-participant-id") || crypto.randomUUID(),
+    sessionStorage.getItem("callio-participant-id") || crypto.randomUUID(),
   );
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimerRef = useRef<number | null>(null);
   const intentionalLeaveRef = useRef(false);
 
   useEffect(() => {
-    localStorage.setItem("callio-participant-id", participantIdRef.current);
+    sessionStorage.setItem("callio-participant-id", participantIdRef.current);
     return () => {
       if (reconnectTimerRef.current !== null) window.clearTimeout(reconnectTimerRef.current);
     };
