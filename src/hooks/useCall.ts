@@ -12,6 +12,7 @@ export function useCall() {
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
   const [isFrontCamera, setIsFrontCamera] = useState(true);
+  const [isRemoteCameraOn, setIsRemoteCameraOn] = useState(true);
   const roomKeyRef = useRef("");
 
   const socketRef = useRef<WebSocket | null>(null);
@@ -79,6 +80,7 @@ export function useCall() {
     setIsMuted(false);
     setIsCameraOff(false);
     setIsFrontCamera(true);
+    setIsRemoteCameraOn(true);
   }, []);
 
   useEffect(() => () => leaveCall(), [leaveCall]);
@@ -135,6 +137,15 @@ export function useCall() {
     if (message.type === "ice" && message.candidate) {
       if (peer.remoteDescription) await peer.addIceCandidate(message.candidate);
       else pendingCandidatesRef.current.push(message.candidate);
+      return;
+    }
+    if (message.type === "media_state") {
+      setIsRemoteCameraOn(message.camera_enabled !== false);
+      if (message.camera_enabled === false && remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = null;
+      } else if (message.camera_enabled !== false && remoteStreamRef.current && remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = remoteStreamRef.current;
+      }
       return;
     }
     if (message.type === "room_full") {
@@ -287,6 +298,7 @@ export function useCall() {
       stream.removeTrack(track);
       if (localVideoRef.current) localVideoRef.current.srcObject = stream;
       setIsCameraOff(true);
+      send({ type: "media_state", camera_enabled: false });
       return;
     }
 
@@ -297,6 +309,7 @@ export function useCall() {
       stream.addTrack(track);
       if (localVideoRef.current) localVideoRef.current.srcObject = stream;
       setIsCameraOff(false);
+      send({ type: "media_state", camera_enabled: true });
     } catch {
       setError("Could not turn the camera back on. Check your camera permissions.");
     }
@@ -309,8 +322,14 @@ export function useCall() {
 
     try {
       const nextFacingMode = isFrontCamera ? "environment" : "user";
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const cameras = devices.filter((device) => device.kind === "videoinput");
+      const currentDeviceId = stream.getVideoTracks()[0]?.getSettings().deviceId;
+      const nextDevice = cameras.find((device) => device.deviceId !== currentDeviceId);
       const cameraStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: nextFacingMode } },
+        video: nextDevice
+          ? { deviceId: { exact: nextDevice.deviceId } }
+          : { facingMode: { ideal: nextFacingMode } },
       });
       const nextTrack = cameraStream.getVideoTracks()[0];
       const previousTrack = stream.getVideoTracks()[0];
@@ -329,6 +348,7 @@ export function useCall() {
 
   return {
     view, roomKey, peerName, hasRemoteVideo, status, error, isMuted, isCameraOff,
+    isRemoteCameraOn,
     attachLocalVideo, attachRemoteVideo, connect, leaveCall, toggleMute, toggleCamera, switchCamera,
     isFrontCamera,
     setError,

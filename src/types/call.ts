@@ -11,4 +11,5 @@ export type SignalMessage = {
   offer?: RTCSessionDescriptionInit;
   answer?: RTCSessionDescriptionInit;
   candidate?: RTCIceCandidateInit;
+  camera_enabled?: boolean;
 };

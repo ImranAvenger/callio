@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type PointerEvent, type SyntheticEvent } from "react";
 import { CONTROL_CLASS, createRoomKey } from "./constants/call";
 import { useCall } from "./hooks/useCall";
 
@@ -29,9 +29,13 @@ function Icon({ name }: { name: "mic" | "mic-off" | "camera" | "camera-off" | "f
 function DraggablePreview({
   attachVideo,
   visible,
+  aspectRatio,
+  onMetadata,
 }: {
   attachVideo: (element: HTMLVideoElement | null) => void;
   visible: boolean;
+  aspectRatio: number;
+  onMetadata: (event: SyntheticEvent<HTMLVideoElement>) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
@@ -66,7 +70,7 @@ function DraggablePreview({
 
   if (!visible) return null;
 
-  return <div ref={containerRef} className="pointer-events-none absolute inset-0 z-20"><div className="pointer-events-auto absolute bottom-5 right-5 h-32 w-52 touch-none cursor-grab overflow-hidden rounded-xl border-2 border-white/70 bg-[#171c19] shadow-2xl active:cursor-grabbing max-sm:bottom-4 max-sm:right-4 max-sm:h-28 max-sm:w-40" style={{ left: position.x === null ? undefined : position.x, top: position.y === null ? undefined : position.y, right: position.x === null ? undefined : "auto", bottom: position.y === null ? undefined : "auto" }} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={() => { dragRef.current = null; }}><video className="h-full w-full object-cover [transform:scaleX(-1)]" ref={attachVideo} autoPlay muted playsInline /><VideoLabel>You</VideoLabel></div></div>;
+  return <div ref={containerRef} className="pointer-events-none absolute inset-0 z-20"><div className="pointer-events-auto absolute bottom-5 right-5 w-52 touch-none cursor-grab overflow-hidden rounded-xl border-2 border-white/70 bg-[#171c19] shadow-2xl active:cursor-grabbing max-sm:bottom-4 max-sm:right-4 max-sm:w-40" style={{ aspectRatio, left: position.x === null ? undefined : position.x, top: position.y === null ? undefined : position.y, right: position.x === null ? undefined : "auto", bottom: position.y === null ? undefined : "auto" }} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={() => { dragRef.current = null; }}><video className="h-full w-full object-contain transform-[scaleX(-1)]" ref={attachVideo} onLoadedMetadata={onMetadata} autoPlay muted playsInline /><VideoLabel>You</VideoLabel></div></div>;
 }
 
 function Toast({ message, onDismiss }: { message: string; onDismiss: () => void }) {
@@ -95,6 +99,8 @@ function App() {
   const [name, setName] = useState("");
   const [joinKey, setJoinKey] = useState("");
   const [copied, setCopied] = useState(false);
+  const [localAspectRatio, setLocalAspectRatio] = useState(16 / 9);
+  const [remoteAspectRatio, setRemoteAspectRatio] = useState(16 / 9);
   const attachLocalVideo = (element: HTMLVideoElement | null) => call.attachLocalVideo(element);
   const attachRemoteVideo = (element: HTMLVideoElement | null) => call.attachRemoteVideo(element);
 
@@ -121,15 +127,16 @@ function App() {
 
   if (call.view === "call") {
     return (
-      <main className="flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-[#0e1110] text-[#f5f1eb]">
+      <main className="flex h-dvh min-h-0 flex-col overflow-hidden bg-[#0e1110] text-[#f5f1eb]">
         <Toast message={call.error} onDismiss={() => call.setError("")} />
         <header className="flex h-22 items-center justify-between border-b border-white/7 px-[3vw] max-sm:h-17.5"><Brand /><div className="flex items-center gap-3 font-mono text-[11px] text-[#79847b]"><span className="max-sm:hidden">Room</span><strong className="tracking-[.15em] text-[#dbe7c7]">{call.roomKey}</strong><button className={CONTROL_CLASS} onClick={copyRoom}>{copied ? "Copied" : "Copy code"}</button></div><span className="text-xs text-[#68736b] max-sm:hidden">{call.status}</span></header>
         <section className="relative mx-[3vw] my-5 min-h-0 flex-1 flex items-center justify-center overflow-hidden rounded-2xl border border-[#263029] bg-[#101412] max-sm:mx-3 max-sm:my-3">
-          <video className="max-h-full max-w-full object-contain" ref={attachRemoteVideo} autoPlay playsInline />
+          <video className="max-h-full max-w-full object-contain" style={{ aspectRatio: remoteAspectRatio }} ref={attachRemoteVideo} onLoadedMetadata={(event) => setRemoteAspectRatio(event.currentTarget.videoWidth / event.currentTarget.videoHeight || 16 / 9)} autoPlay playsInline />
           {!call.peerName && <Waiting title="Waiting for someone to join" message="Share your call code with someone to start." />}
           {call.peerName && !call.hasRemoteVideo && <Waiting title={`Connecting to ${call.peerName}`} message="Getting the call ready..." />}
-          {call.hasRemoteVideo && <VideoLabel>{call.peerName || "Your guest"}</VideoLabel>}
-          <DraggablePreview attachVideo={attachLocalVideo} visible={!call.isCameraOff} />
+          {call.hasRemoteVideo && call.isRemoteCameraOn && <VideoLabel>{call.peerName || "Your guest"}</VideoLabel>}
+          {!call.isRemoteCameraOn && call.peerName && <div className="absolute inset-0 flex flex-col items-center justify-center gap-4"><div className="flex h-24 w-24 items-center justify-center rounded-full bg-[#c9e181] text-4xl font-semibold text-[#192018]">{call.peerName.charAt(0).toUpperCase()}</div><span className="text-base text-[#d5ddd5]">{call.peerName}</span></div>}
+          <DraggablePreview attachVideo={attachLocalVideo} visible={!call.isCameraOff} aspectRatio={localAspectRatio} onMetadata={(event) => setLocalAspectRatio(event.currentTarget.videoWidth / event.currentTarget.videoHeight || 16 / 9)} />
         </section>
         <footer className="relative flex min-h-19.5 shrink-0 items-center justify-center border-t border-[#252d28] px-[3vw] font-mono text-[11px] text-[#89948b] max-sm:min-h-20 max-sm:px-3 max-sm:py-3"><div className="absolute left-[3vw] max-sm:hidden"><span className="mr-2 inline-block h-1.5 w-1.5 rounded-full bg-[#c9e181]" />{call.status}</div><div className="flex items-center gap-3"><button aria-label={call.isMuted ? "Unmute microphone" : "Mute microphone"} title={call.isMuted ? "Unmute microphone" : "Mute microphone"} className={`flex h-12 w-12 items-center justify-center rounded-full ${call.isMuted ? "bg-[#c9e181] text-[#192018]" : "bg-[#1b211e] text-[#d5ddd5]"} border border-[#39453b]`} onClick={call.toggleMute}><Icon name={call.isMuted ? "mic-off" : "mic"} /></button><button aria-label={call.isCameraOff ? "Turn camera on" : "Turn camera off"} title={call.isCameraOff ? "Turn camera on" : "Turn camera off"} className={`flex h-12 w-12 items-center justify-center rounded-full ${call.isCameraOff ? "bg-[#c9e181] text-[#192018]" : "bg-[#1b211e] text-[#d5ddd5]"} border border-[#39453b]`} onClick={() => void call.toggleCamera()}><Icon name={call.isCameraOff ? "camera-off" : "camera"} /></button><button aria-label="Switch camera" title="Switch camera" className="hidden h-12 w-12 items-center justify-center rounded-full border border-[#39453b] bg-[#1b211e] text-[#d5ddd5] disabled:cursor-not-allowed disabled:opacity-40 max-sm:flex" onClick={() => void call.switchCamera()} disabled={call.isCameraOff}><Icon name="flip" /></button><button aria-label="Leave call" title="Leave call" className="flex h-12 w-12 items-center justify-center rounded-full border border-[#7d463c] bg-[#4a211d] text-[#ffb7a8]" onClick={call.leaveCall}><Icon name="leave" /></button></div><div className="absolute right-[3vw] font-mono text-[10px] text-[#58645b] max-sm:hidden">🔒 Secure call</div></footer>
       </main>
