@@ -29,6 +29,7 @@ export function useCall() {
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimerRef = useRef<number | null>(null);
   const intentionalLeaveRef = useRef(false);
+  const cameraFacingModeRef = useRef<"user" | "environment">("user");
   const roleRef = useRef<Role | null>(null);
   const socketReconnectAttemptsRef = useRef(0);
   const createPeerRef = useRef<(() => RTCPeerConnection) | null>(null);
@@ -271,6 +272,11 @@ export function useCall() {
       configureSocket(socket, action);
       setRoomKey(key);
       roomKeyRef.current = key;
+      const initialFacingMode = stream.getVideoTracks()[0]?.getSettings().facingMode;
+      if (initialFacingMode === "environment" || initialFacingMode === "user") {
+        cameraFacingModeRef.current = initialFacingMode;
+        setIsFrontCamera(initialFacingMode === "user");
+      }
     } catch (err) {
       setError(err instanceof DOMException && err.name === "NotAllowedError"
         ? "Camera and microphone permission are required to join."
@@ -303,11 +309,23 @@ export function useCall() {
     }
 
     try {
-      const cameraStream = await navigator.mediaDevices.getUserMedia({ video: true });
+      let cameraStream: MediaStream;
+      try {
+        cameraStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: cameraFacingModeRef.current } },
+        });
+      } catch {
+        cameraStream = await navigator.mediaDevices.getUserMedia({ video: true });
+      }
       const track = cameraStream.getVideoTracks()[0];
       await sender.replaceTrack(track);
       stream.addTrack(track);
       if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+      const actualFacingMode = track.getSettings().facingMode;
+      if (actualFacingMode === "environment" || actualFacingMode === "user") {
+        cameraFacingModeRef.current = actualFacingMode;
+        setIsFrontCamera(actualFacingMode === "user");
+      }
       setIsCameraOff(false);
       send({ type: "media_state", camera_enabled: true });
     } catch {
@@ -321,16 +339,21 @@ export function useCall() {
     if (!stream || !sender || isCameraOff) return;
 
     try {
-      const nextFacingMode = isFrontCamera ? "environment" : "user";
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const cameras = devices.filter((device) => device.kind === "videoinput");
-      const currentDeviceId = stream.getVideoTracks()[0]?.getSettings().deviceId;
-      const nextDevice = cameras.find((device) => device.deviceId !== currentDeviceId);
-      const cameraStream = await navigator.mediaDevices.getUserMedia({
-        video: nextDevice
-          ? { deviceId: { exact: nextDevice.deviceId } }
-          : { facingMode: { ideal: nextFacingMode } },
-      });
+      const nextFacingMode = cameraFacingModeRef.current === "user" ? "environment" : "user";
+      let cameraStream: MediaStream;
+      try {
+        cameraStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { exact: nextFacingMode } },
+        });
+      } catch {
+        try {
+          cameraStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: nextFacingMode } },
+          });
+        } catch {
+          cameraStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        }
+      }
       const nextTrack = cameraStream.getVideoTracks()[0];
       const previousTrack = stream.getVideoTracks()[0];
       await sender.replaceTrack(nextTrack);
@@ -340,7 +363,14 @@ export function useCall() {
       }
       stream.addTrack(nextTrack);
       if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-      setIsFrontCamera(!isFrontCamera);
+      const actualFacingMode = nextTrack.getSettings().facingMode;
+      if (actualFacingMode === "environment" || actualFacingMode === "user") {
+        cameraFacingModeRef.current = actualFacingMode;
+        setIsFrontCamera(actualFacingMode === "user");
+      } else {
+        cameraFacingModeRef.current = nextFacingMode;
+        setIsFrontCamera(nextFacingMode === "user");
+      }
     } catch {
       setError("This device could not switch cameras.");
     }
