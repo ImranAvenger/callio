@@ -1,7 +1,7 @@
 // const turnUrls = import.meta.env.VITE_TURN_URLS
-  ?.split(",")
-  .map((url: string) => url.trim())
-  .filter(Boolean);
+  // ?.split(",")
+  // .map((url: string) => url.trim())
+  // .filter(Boolean);
 
 export const ICE_SERVERS: RTCConfiguration["iceServers"] = [
   { urls: "stun:stun.l.google.com:19302" },
