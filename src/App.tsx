@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent, type SyntheticEvent } from "react";
+import React, { useCallback, useEffect, useRef, useState, type PointerEvent, type SyntheticEvent } from "react";
 import { CONTROL_CLASS, createRoomKey } from "./constants/call";
 import { useCall } from "./hooks/useCall";
 
@@ -31,15 +31,22 @@ function DraggablePreview({
   visible,
   aspectRatio,
   onMetadata,
+  orientationKey,
 }: {
   attachVideo: (element: HTMLVideoElement | null) => void;
   visible: boolean;
   aspectRatio: number;
   onMetadata: (event: SyntheticEvent<HTMLVideoElement>) => void;
+  orientationKey: number;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
   const dragRef = useRef<{ x: number; y: number; startX: number; startY: number } | null>(null);
+
+  // Reset position to default (bottom-right) when orientation changes
+  useEffect(() => {
+    setPosition({ x: null, y: null });
+  }, [orientationKey]);
 
   const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -70,7 +77,40 @@ function DraggablePreview({
 
   if (!visible) return null;
 
-  return <div ref={containerRef} className="pointer-events-none absolute inset-0 z-20"><div className="pointer-events-auto absolute bottom-5 right-5 w-52 touch-none cursor-grab overflow-hidden rounded-xl border-2 border-white/70 bg-[#171c19] shadow-2xl active:cursor-grabbing max-sm:bottom-4 max-sm:right-4 max-sm:w-40" style={{ aspectRatio, left: position.x === null ? undefined : position.x, top: position.y === null ? undefined : position.y, right: position.x === null ? undefined : "auto", bottom: position.y === null ? undefined : "auto" }} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={() => { dragRef.current = null; }}><video className="h-full w-full object-contain transform-[scaleX(-1)]" ref={attachVideo} onLoadedMetadata={onMetadata} onResize={onMetadata} autoPlay muted playsInline /><VideoLabel>You</VideoLabel></div></div>;
+  // Dynamic sizing: keep the inset a reasonable size regardless of orientation.
+  // For landscape (aspectRatio >= 1): fixed width, height derived.
+  // For portrait (aspectRatio < 1): fixed height, width derived.
+  const isPortrait = aspectRatio < 1;
+  const maxDimension = 160; // px — the "long" side of the inset
+  const smallMaxDimension = 130; // for small screens
+  const insetStyle: React.CSSProperties = {
+    aspectRatio,
+    ...(isPortrait
+      ? { height: maxDimension, width: maxDimension * aspectRatio }
+      : { width: maxDimension, height: maxDimension / aspectRatio }),
+    left: position.x === null ? undefined : position.x,
+    top: position.y === null ? undefined : position.y,
+    right: position.x === null ? undefined : "auto",
+    bottom: position.y === null ? undefined : "auto",
+  };
+  const smallInsetStyle: React.CSSProperties = isPortrait
+    ? { height: smallMaxDimension, width: smallMaxDimension * aspectRatio }
+    : { width: smallMaxDimension, height: smallMaxDimension / aspectRatio };
+
+  return (
+    <div ref={containerRef} className="pointer-events-none absolute inset-0 z-20">
+      <div
+        className="pointer-events-auto absolute bottom-5 right-5 touch-none cursor-grab overflow-hidden rounded-xl border-2 border-white/70 bg-[#171c19] shadow-2xl active:cursor-grabbing max-sm:bottom-4 max-sm:right-4"
+        style={Object.assign({}, insetStyle, window.innerWidth < 640 ? smallInsetStyle : {})}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={() => { dragRef.current = null; }}
+      >
+        <video className="h-full w-full object-contain transform-[scaleX(-1)]" ref={attachVideo} onLoadedMetadata={onMetadata} onResize={onMetadata} autoPlay muted playsInline />
+        <VideoLabel>You</VideoLabel>
+      </div>
+    </div>
+  );
 }
 
 function Toast({ message, onDismiss }: { message: string; onDismiss: () => void }) {
@@ -100,9 +140,45 @@ function App() {
   const [joinKey, setJoinKey] = useState("");
   const [copied, setCopied] = useState(false);
   const [localAspectRatio, setLocalAspectRatio] = useState(16 / 9);
-  const [remoteAspectRatio, setRemoteAspectRatio] = useState(16 / 9);
-  const attachLocalVideo = (element: HTMLVideoElement | null) => call.attachLocalVideo(element);
-  const attachRemoteVideo = (element: HTMLVideoElement | null) => call.attachRemoteVideo(element);
+  const [orientationKey, setOrientationKey] = useState(0);
+  const localVideoElRef = useRef<HTMLVideoElement | null>(null);
+
+  const attachLocalVideo = useCallback((element: HTMLVideoElement | null) => {
+    localVideoElRef.current = element;
+    call.attachLocalVideo(element);
+  }, [call]);
+
+  const attachRemoteVideo = useCallback((element: HTMLVideoElement | null) => {
+    call.attachRemoteVideo(element);
+  }, [call]);
+
+  // Listen for orientation/resize changes to update aspect ratios and reset inset position
+  useEffect(() => {
+    const handleOrientationChange = () => {
+      setOrientationKey((k) => k + 1);
+      // Re-read local video dimensions after a brief delay for the new orientation to settle
+      requestAnimationFrame(() => {
+        const localEl = localVideoElRef.current;
+        if (localEl && localEl.videoWidth && localEl.videoHeight) {
+          setLocalAspectRatio(localEl.videoWidth / localEl.videoHeight);
+        }
+      });
+    };
+
+    // Use screen.orientation API where available, fall back to resize
+    const orientationApi = window.screen?.orientation;
+    if (orientationApi) {
+      orientationApi.addEventListener("change", handleOrientationChange);
+    }
+    window.addEventListener("resize", handleOrientationChange);
+
+    return () => {
+      if (orientationApi) {
+        orientationApi.removeEventListener("change", handleOrientationChange);
+      }
+      window.removeEventListener("resize", handleOrientationChange);
+    };
+  }, []);
 
   const validateAndConnect = (key: string, action: "create" | "join") => {
     const displayName = name.trim();
@@ -131,12 +207,12 @@ function App() {
         <Toast message={call.error} onDismiss={() => call.setError("")} />
         <header className="flex h-22 items-center justify-between border-b border-white/7 px-[3vw] max-sm:h-17.5"><Brand /><div className="flex items-center gap-3 font-mono text-[11px] text-[#79847b]"><span className="max-sm:hidden">Room</span><strong className="tracking-[.15em] text-[#dbe7c7]">{call.roomKey}</strong><button className={CONTROL_CLASS} onClick={copyRoom}>{copied ? "Copied" : "Copy code"}</button></div><span className="text-xs text-[#68736b] max-sm:hidden">{call.status}</span></header>
         <section className="relative mx-[3vw] my-5 min-h-0 flex-1 flex items-center justify-center overflow-hidden rounded-2xl border border-[#263029] bg-[#101412] max-sm:mx-3 max-sm:my-3">
-          <video className={`max-h-full max-w-full object-contain ${call.isRemoteCameraOn ? "" : "hidden"}`} style={{ aspectRatio: remoteAspectRatio }} ref={attachRemoteVideo} onLoadedMetadata={(event) => setRemoteAspectRatio(event.currentTarget.videoWidth / event.currentTarget.videoHeight || 16 / 9)} onResize={(event) => setRemoteAspectRatio(event.currentTarget.videoWidth / event.currentTarget.videoHeight || 16 / 9)} autoPlay playsInline />
+          <video className={`h-full w-full object-contain ${call.isRemoteCameraOn ? "" : "hidden"}`} ref={attachRemoteVideo} autoPlay playsInline />
           {!call.peerName && <Waiting title="Waiting for someone to join" message="Share your call code with someone to start." />}
           {call.peerName && !call.hasRemoteVideo && <Waiting title={`Connecting to ${call.peerName}`} message="Getting the call ready..." />}
           {call.hasRemoteVideo && call.isRemoteCameraOn && <VideoLabel>{call.peerName || "Your guest"}</VideoLabel>}
           {!call.isRemoteCameraOn && call.peerName && <div className="absolute inset-0 flex flex-col items-center justify-center gap-4"><div className="flex h-24 w-24 items-center justify-center rounded-full bg-[#c9e181] text-4xl font-semibold text-[#192018]">{call.peerName.charAt(0).toUpperCase()}</div><span className="text-base text-[#d5ddd5]">{call.peerName}</span></div>}
-          <DraggablePreview attachVideo={attachLocalVideo} visible={!call.isCameraOff} aspectRatio={localAspectRatio} onMetadata={(event) => setLocalAspectRatio(event.currentTarget.videoWidth / event.currentTarget.videoHeight || 16 / 9)} />
+          <DraggablePreview attachVideo={attachLocalVideo} visible={!call.isCameraOff} aspectRatio={localAspectRatio} onMetadata={(event) => setLocalAspectRatio(event.currentTarget.videoWidth / event.currentTarget.videoHeight || 16 / 9)} orientationKey={orientationKey} />
         </section>
         <footer className="relative flex min-h-19.5 shrink-0 items-center justify-center border-t border-[#252d28] px-[3vw] font-mono text-[11px] text-[#89948b] max-sm:min-h-20 max-sm:px-3 max-sm:py-3"><div className="absolute left-[3vw] max-sm:hidden"><span className="mr-2 inline-block h-1.5 w-1.5 rounded-full bg-[#c9e181]" />{call.status}</div><div className="flex items-center gap-3"><button aria-label={call.isMuted ? "Unmute microphone" : "Mute microphone"} title={call.isMuted ? "Unmute microphone" : "Mute microphone"} className={`flex h-12 w-12 items-center justify-center rounded-full ${call.isMuted ? "bg-[#c9e181] text-[#192018]" : "bg-[#1b211e] text-[#d5ddd5]"} border border-[#39453b]`} onClick={call.toggleMute}><Icon name={call.isMuted ? "mic-off" : "mic"} /></button><button aria-label={call.isCameraOff ? "Turn camera on" : "Turn camera off"} title={call.isCameraOff ? "Turn camera on" : "Turn camera off"} className={`flex h-12 w-12 items-center justify-center rounded-full ${call.isCameraOff ? "bg-[#c9e181] text-[#192018]" : "bg-[#1b211e] text-[#d5ddd5]"} border border-[#39453b]`} onClick={() => void call.toggleCamera()}><Icon name={call.isCameraOff ? "camera-off" : "camera"} /></button><button aria-label="Switch camera" title="Switch camera" className="hidden h-12 w-12 items-center justify-center rounded-full border border-[#39453b] bg-[#1b211e] text-[#d5ddd5] disabled:cursor-not-allowed disabled:opacity-40 max-sm:flex" onClick={() => void call.switchCamera()} disabled={call.isCameraOff}><Icon name="flip" /></button><button aria-label="Leave call" title="Leave call" className="flex h-12 w-12 items-center justify-center rounded-full border border-[#7d463c] bg-[#4a211d] text-[#ffb7a8]" onClick={call.leaveCall}><Icon name="leave" /></button></div><div className="absolute right-[3vw] font-mono text-[10px] text-[#58645b] max-sm:hidden">🔒 Secure call</div></footer>
       </main>

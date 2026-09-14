@@ -320,7 +320,9 @@ export function useCall() {
       const track = cameraStream.getVideoTracks()[0];
       await sender.replaceTrack(track);
       stream.addTrack(track);
-      if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+      const freshStream = new MediaStream(stream.getTracks());
+      localStreamRef.current = freshStream;
+      if (localVideoRef.current) localVideoRef.current.srcObject = freshStream;
       const actualFacingMode = track.getSettings().facingMode;
       if (actualFacingMode === "environment" || actualFacingMode === "user") {
         cameraFacingModeRef.current = actualFacingMode;
@@ -356,13 +358,28 @@ export function useCall() {
       }
       const nextTrack = cameraStream.getVideoTracks()[0];
       const previousTrack = stream.getVideoTracks()[0];
+
+      // Detect if the device didn't actually switch cameras
+      const previousDeviceId = previousTrack?.getSettings().deviceId;
+      const nextDeviceId = nextTrack.getSettings().deviceId;
+      if (previousDeviceId && nextDeviceId && previousDeviceId === nextDeviceId) {
+        nextTrack.stop();
+        setError("This device only has one camera.");
+        return;
+      }
+
       await sender.replaceTrack(nextTrack);
       if (previousTrack) {
         previousTrack.stop();
         stream.removeTrack(previousTrack);
       }
       stream.addTrack(nextTrack);
-      if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+
+      // Create a fresh MediaStream so the video element detects the change
+      const freshStream = new MediaStream(stream.getTracks());
+      localStreamRef.current = freshStream;
+      if (localVideoRef.current) localVideoRef.current.srcObject = freshStream;
+
       const actualFacingMode = nextTrack.getSettings().facingMode;
       if (actualFacingMode === "environment" || actualFacingMode === "user") {
         cameraFacingModeRef.current = actualFacingMode;
