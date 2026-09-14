@@ -1,4 +1,4 @@
-const turnUrls = import.meta.env.VITE_TURN_URLS
+// const turnUrls = import.meta.env.VITE_TURN_URLS
   ?.split(",")
   .map((url: string) => url.trim())
   .filter(Boolean);
