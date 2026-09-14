@@ -206,7 +206,7 @@ export function useCall() {
           }
           if ((peer.connectionState === "disconnected" || peer.connectionState === "failed") && !intentionalLeaveRef.current) {
             if (reconnectAttemptsRef.current >= 5) {
-              setStatus("Connection failed");
+              leaveCall();
               setError("We could not reconnect. Check your network and try joining again.");
               return;
             }
@@ -242,7 +242,7 @@ export function useCall() {
         currentSocket.onclose = () => {
           if (intentionalLeaveRef.current) return;
           if (socketReconnectAttemptsRef.current >= 5) {
-            setStatus("Connection failed");
+            leaveCall();
             setError("The call server connection was lost.");
             return;
           }
@@ -263,7 +263,7 @@ export function useCall() {
         ? "Camera and microphone permission are required to join."
         : "Could not start the call. Check your camera and server connection.");
     }
-  }, [handleSignal, send, startOffer]);
+  }, [handleSignal, leaveCall, send, startOffer]);
 
   const toggleMute = () => {
     const track = localStreamRef.current?.getAudioTracks()[0];
