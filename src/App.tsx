@@ -22,7 +22,7 @@ function App() {
   const attachLocalVideo = (element: HTMLVideoElement | null) => call.attachLocalVideo(element);
   const attachRemoteVideo = (element: HTMLVideoElement | null) => call.attachRemoteVideo(element);
 
-  const validateAndConnect = (key: string) => {
+  const validateAndConnect = (key: string, action: "create" | "join") => {
     const displayName = name.trim();
     if (!displayName) {
       call.setError("Enter your name first.");
@@ -32,11 +32,11 @@ function App() {
       call.setError("Enter a valid room code.");
       return;
     }
-    void call.connect(key, displayName);
+    void call.connect(key, displayName, action);
   };
 
-  const createRoom = () => validateAndConnect(createRoomKey());
-  const joinRoom = () => validateAndConnect(joinKey.trim().toUpperCase());
+  const createRoom = () => validateAndConnect(createRoomKey(), "create");
+  const joinRoom = () => validateAndConnect(joinKey.trim().toUpperCase(), "join");
   const copyRoom = async () => {
     await navigator.clipboard.writeText(call.roomKey);
     setCopied(true);

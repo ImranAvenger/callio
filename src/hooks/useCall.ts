@@ -104,10 +104,30 @@ export function useCall() {
     if (message.type === "room_full") {
       setError("This room is already full.");
       leaveCall();
+      return;
+    }
+    if (message.type === "room_not_found") {
+      setError("Room not found. Ask the host to create it first.");
+      leaveCall();
+      return;
+    }
+    if (message.type === "room_exists") {
+      setError("That room already exists. Join it instead.");
+      leaveCall();
+      return;
+    }
+    if (message.type === "invalid_room") {
+      setError("The room code is invalid.");
+      leaveCall();
+      return;
+    }
+    if (message.type === "invalid_name") {
+      setError("The display name is invalid.");
+      leaveCall();
     }
   }, [leaveCall, send, startOffer]);
 
-  const connect = useCallback(async (key: string, displayName: string) => {
+  const connect = useCallback(async (key: string, displayName: string, action: "create" | "join") => {
     setError("");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
@@ -139,7 +159,7 @@ export function useCall() {
         }
       };
       socket.onopen = () => {
-        send({ type: "join", room_key: key, display_name: displayName });
+        send({ type: action, room_key: key, display_name: displayName });
         setStatus("Waiting for your guest...");
       };
       socket.onmessage = (event) => {
