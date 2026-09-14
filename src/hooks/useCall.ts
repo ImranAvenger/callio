@@ -75,6 +75,7 @@ export function useCall() {
   const handleSignal = useCallback(async (message: SignalMessage, peer: RTCPeerConnection) => {
     if (message.type === "joined") {
       setStatus(message.participants === 2 ? "Connecting..." : "Waiting for your guest...");
+      setView("call");
       return;
     }
     if (message.type === "room_ready" && message.role) {
@@ -170,7 +171,6 @@ export function useCall() {
         if (peer.connectionState !== "connected") setStatus("Disconnected");
       };
       setRoomKey(key);
-      setView("call");
     } catch (err) {
       setError(err instanceof DOMException && err.name === "NotAllowedError"
         ? "Camera and microphone permission are required to join."
