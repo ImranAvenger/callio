@@ -27,6 +27,9 @@ export function useCall() {
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimerRef = useRef<number | null>(null);
   const intentionalLeaveRef = useRef(false);
+  const roleRef = useRef<Role | null>(null);
+  const socketReconnectAttemptsRef = useRef(0);
+  const createPeerRef = useRef<(() => RTCPeerConnection) | null>(null);
 
   useEffect(() => {
     sessionStorage.setItem("callio-participant-id", participantIdRef.current);
@@ -60,9 +63,11 @@ export function useCall() {
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
     socketRef.current = null;
     peerRef.current = null;
+    createPeerRef.current = null;
     localStreamRef.current = null;
     remoteStreamRef.current = null;
     videoSenderRef.current = null;
+    roleRef.current = null;
     pendingCandidatesRef.current = [];
     setView("lobby");
     roomKeyRef.current = "";
@@ -77,7 +82,10 @@ export function useCall() {
   useEffect(() => () => leaveCall(), [leaveCall]);
 
   const startOffer = useCallback(async (iceRestart = false) => {
-    const peer = peerRef.current;
+    let peer = peerRef.current;
+    if (!peer && createPeerRef.current) {
+      peer = createPeerRef.current();
+    }
     if (!peer) return;
     const offer = await peer.createOffer({ iceRestart });
     await peer.setLocalDescription(offer);
@@ -91,18 +99,24 @@ export function useCall() {
     pendingCandidatesRef.current = [];
   };
 
-  const handleSignal = useCallback(async (message: SignalMessage, peer: RTCPeerConnection) => {
+  const handleSignal = useCallback(async (message: SignalMessage) => {
     if (message.type === "joined") {
       setStatus(message.participants === 2 ? "Connecting..." : "Waiting for your guest...");
       setView("call");
       return;
     }
     if (message.type === "room_ready" && message.role) {
+      roleRef.current = message.role;
+      let peer = peerRef.current;
+      if (!peer && createPeerRef.current) peer = createPeerRef.current();
+      if (!peer) return;
       setPeerName(message.peer_name || "Guest");
       setStatus("Connecting...");
       if (message.role === ("offerer" satisfies Role)) await startOffer(true);
       return;
     }
+    const peer = peerRef.current;
+    if (!peer) return;
     if (message.type === "offer" && message.offer) {
       await peer.setRemoteDescription(message.offer);
       await flushCandidates(peer);
@@ -127,6 +141,8 @@ export function useCall() {
       return;
     }
     if (message.type === "peer_left") {
+      peer.close();
+      peerRef.current = null;
       setPeerName("");
       setHasRemoteVideo(false);
       setStatus("Waiting for someone to join...");
@@ -164,35 +180,53 @@ export function useCall() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       let socket = new WebSocket(SIGNALING_URL);
-      const peer = new RTCPeerConnection({ iceServers: ICE_SERVERS });
       localStreamRef.current = stream;
       socketRef.current = socket;
-      peerRef.current = peer;
       if (localVideoRef.current) localVideoRef.current.srcObject = stream;
 
-      stream.getTracks().forEach((track) => {
-        const sender = peer.addTrack(track, stream);
-        if (track.kind === "video") videoSenderRef.current = sender;
-      });
-      peer.ontrack = (event) => {
-        setHasRemoteVideo(true);
-        remoteStreamRef.current = event.streams[0];
-        if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0];
+      createPeerRef.current = () => {
+        const peer = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+        peerRef.current = peer;
+        stream.getTracks().forEach((track) => {
+          const sender = peer.addTrack(track, stream);
+          if (track.kind === "video") videoSenderRef.current = sender;
+        });
+        peer.ontrack = (event) => {
+          setHasRemoteVideo(true);
+          remoteStreamRef.current = event.streams[0];
+          if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0];
+        };
+        peer.onicecandidate = (event) => {
+          if (event.candidate) send({ type: "ice", candidate: event.candidate.toJSON() });
+        };
+        peer.onconnectionstatechange = () => {
+          if (peer.connectionState === "connected") {
+            reconnectAttemptsRef.current = 0;
+            setStatus("Connected");
+          }
+          if ((peer.connectionState === "disconnected" || peer.connectionState === "failed") && !intentionalLeaveRef.current) {
+            if (reconnectAttemptsRef.current >= 5) {
+              setStatus("Connection failed");
+              setError("We could not reconnect. Check your network and try joining again.");
+              return;
+            }
+            setStatus("Reconnecting...");
+            if (roleRef.current === "offerer" && reconnectTimerRef.current === null) {
+              const delay = 1500 * Math.min(reconnectAttemptsRef.current + 1, 5);
+              reconnectAttemptsRef.current += 1;
+              reconnectTimerRef.current = window.setTimeout(() => {
+                reconnectTimerRef.current = null;
+                void startOffer(true);
+              }, delay);
+            }
+          }
+        };
+        return peer;
       };
-      peer.onicecandidate = (event) => {
-        if (event.candidate) send({ type: "ice", candidate: event.candidate.toJSON() });
-      };
-      peer.onconnectionstatechange = () => {
-        if (peer.connectionState === "connected") setStatus("Connected");
-        if (peer.connectionState === "disconnected") setStatus("Connection interrupted");
-        if (peer.connectionState === "failed") {
-          setError("A direct connection could not be established. Configure a TURN server for different networks.");
-          setStatus("Connection failed");
-        }
-      };
+      createPeerRef.current();
       const configureSocket = (currentSocket: WebSocket, messageType: "create" | "join") => {
         currentSocket.onopen = () => {
-          reconnectAttemptsRef.current = 0;
+          socketReconnectAttemptsRef.current = 0;
           send({
             type: messageType,
             room_key: key,
@@ -202,12 +236,18 @@ export function useCall() {
           setStatus("Waiting for your guest...");
         };
         currentSocket.onmessage = (event) => {
-          void handleSignal(JSON.parse(event.data) as SignalMessage, peer);
+          void handleSignal(JSON.parse(event.data) as SignalMessage);
         };
         currentSocket.onerror = () => setError("Could not connect to the call server.");
         currentSocket.onclose = () => {
           if (intentionalLeaveRef.current) return;
+          if (socketReconnectAttemptsRef.current >= 5) {
+            setStatus("Connection failed");
+            setError("The call server connection was lost.");
+            return;
+          }
           setStatus("Reconnecting...");
+          socketReconnectAttemptsRef.current += 1;
           reconnectTimerRef.current = window.setTimeout(() => {
             socket = new WebSocket(SIGNALING_URL);
             socketRef.current = socket;
@@ -223,28 +263,7 @@ export function useCall() {
         ? "Camera and microphone permission are required to join."
         : "Could not start the call. Check your camera and server connection.");
     }
-  }, [handleSignal, send]);
-
-  useEffect(() => {
-    const peer = peerRef.current;
-    if (!peer) return;
-    const reconnect = () => {
-      if (peer.connectionState !== "failed" && peer.connectionState !== "disconnected") return;
-      if (reconnectAttemptsRef.current >= 5) {
-        setStatus("Connection failed");
-        setError("We could not reconnect. Check your network and try joining again.");
-        return;
-      }
-      setStatus("Reconnecting...");
-      const delay = 1500 * (reconnectAttemptsRef.current + 1);
-      reconnectAttemptsRef.current += 1;
-      reconnectTimerRef.current = window.setTimeout(() => {
-        void startOffer(true);
-      }, delay);
-    };
-    peer.addEventListener("connectionstatechange", reconnect);
-    return () => peer.removeEventListener("connectionstatechange", reconnect);
-  }, [startOffer, view]);
+  }, [handleSignal, send, startOffer]);
 
   const toggleMute = () => {
     const track = localStreamRef.current?.getAudioTracks()[0];
