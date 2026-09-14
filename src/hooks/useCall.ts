@@ -133,6 +133,10 @@ export function useCall() {
       peer.onconnectionstatechange = () => {
         if (peer.connectionState === "connected") setStatus("Connected");
         if (peer.connectionState === "disconnected") setStatus("Connection interrupted");
+        if (peer.connectionState === "failed") {
+          setError("A direct connection could not be established. Configure a TURN server for different networks.");
+          setStatus("Connection failed");
+        }
       };
       socket.onopen = () => {
         send({ type: "join", room_key: key, display_name: displayName });
