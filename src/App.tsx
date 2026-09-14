@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { CONTROL_CLASS, createRoomKey } from "./constants/call";
 import { useCall } from "./hooks/useCall";
 
@@ -12,6 +12,61 @@ function Waiting({ title, message }: { title: string; message: string }) {
 
 function VideoLabel({ children }: { children: string }) {
   return <span className="absolute bottom-3 left-4 rounded bg-black/60 px-2 py-1.5 font-mono text-[11px] text-[#d8e1d5]">{children}</span>;
+}
+
+function Icon({ name }: { name: "mic" | "mic-off" | "camera" | "camera-off" | "flip" | "leave" }) {
+  const paths = {
+    mic: <><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3M8 22h8" /></>,
+    "mic-off": <><path d="m3 3 18 18M9 5v7a3 3 0 0 0 5 2.2M15 9V5a3 3 0 0 0-5-2.2M5 10v2a7 7 0 0 0 11.2 5.6M12 19v3M8 22h8" /></>,
+    camera: <><path d="m16 7 5-3v16l-5-3M3 6h13v12H3z" /></>,
+    "camera-off": <><path d="m3 3 18 18M16 7l5-3v16l-5-3M3 6h7M3 18h13V9" /></>,
+    flip: <><path d="M20 7h-7l2.5-2.5M4 17h7l-2.5 2.5M17 4.5A7 7 0 0 1 20 10M7 19.5A7 7 0 0 1 4 14" /></>,
+    leave: <><path d="M10 17l5-5-5-5M15 12H3M21 19V5a2 2 0 0 0-2-2h-5M14 21h5a2 2 0 0 0 2-2" /></>,
+  };
+  return <svg aria-hidden="true" className="h-5 w-5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24">{paths[name]}</svg>;
+}
+
+function DraggablePreview({
+  attachVideo,
+  visible,
+}: {
+  attachVideo: (element: HTMLVideoElement | null) => void;
+  visible: boolean;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
+  const dragRef = useRef<{ x: number; y: number; startX: number; startY: number } | null>(null);
+
+  const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const container = containerRef.current;
+    const preview = event.currentTarget;
+    if (!container) return;
+    const containerRect = container.getBoundingClientRect();
+    const previewRect = preview.getBoundingClientRect();
+    const x = previewRect.left - containerRect.left;
+    const y = previewRect.top - containerRect.top;
+    setPosition({ x, y });
+    dragRef.current = { x, y, startX: event.clientX, startY: event.clientY };
+  };
+  const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    const container = containerRef.current;
+    const preview = event.currentTarget;
+    if (!drag || !container) return;
+    const containerRect = container.getBoundingClientRect();
+    const previewRect = preview.getBoundingClientRect();
+    const maxX = Math.max(0, containerRect.width - previewRect.width);
+    const maxY = Math.max(0, containerRect.height - previewRect.height);
+    setPosition({
+      x: Math.min(maxX, Math.max(0, drag.x + event.clientX - drag.startX)),
+      y: Math.min(maxY, Math.max(0, drag.y + event.clientY - drag.startY)),
+    });
+  };
+
+  if (!visible) return null;
+
+  return <div ref={containerRef} className="pointer-events-none absolute inset-0 z-20"><div className="pointer-events-auto absolute bottom-5 right-5 h-32 w-52 touch-none cursor-grab overflow-hidden rounded-xl border-2 border-white/70 bg-[#171c19] shadow-2xl active:cursor-grabbing max-sm:bottom-4 max-sm:right-4 max-sm:h-28 max-sm:w-40" style={{ left: position.x === null ? undefined : position.x, top: position.y === null ? undefined : position.y, right: position.x === null ? undefined : "auto", bottom: position.y === null ? undefined : "auto" }} onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={() => { dragRef.current = null; }}><video className="h-full w-full object-cover [transform:scaleX(-1)]" ref={attachVideo} autoPlay muted playsInline /><VideoLabel>You</VideoLabel></div></div>;
 }
 
 function Toast({ message, onDismiss }: { message: string; onDismiss: () => void }) {
@@ -66,11 +121,17 @@ function App() {
 
   if (call.view === "call") {
     return (
-      <main className="min-h-screen bg-[#0e1110] text-[#f5f1eb]">
+      <main className="flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-[#0e1110] text-[#f5f1eb]">
         <Toast message={call.error} onDismiss={() => call.setError("")} />
-        <header className="flex h-22 items-center justify-between border-b border-white/7 px-[3vw] max-sm:h-17.5"><Brand /><div className="flex items-center gap-3 font-mono text-[11px] text-[#79847b]"><span className="max-sm:hidden">Room</span><strong className="tracking-[.15em] text-[#dbe7c7]">{call.roomKey}</strong><button className={CONTROL_CLASS} onClick={copyRoom}>{copied ? "Copied" : "Copy code"}</button></div><button className="rounded border border-[#5b3933] bg-[#1a201c] px-3 py-2 text-[11px] text-[#e3a090]" onClick={call.leaveCall}>Leave call</button></header>
-        <section className="grid h-[calc(100vh-166px)] min-h-125 grid-cols-[minmax(0,1fr)_230px] gap-4 px-[3vw] py-6 max-sm:h-[calc(100vh-210px)] max-sm:min-h-95 max-sm:grid-cols-1 max-sm:px-[4vw]"><div className="relative overflow-hidden rounded-[10px] border border-[#263029] bg-[#171c19]"><video className="h-full w-full object-cover transform-[scaleX(-1)]" ref={attachRemoteVideo} autoPlay playsInline />{!call.peerName && <Waiting title="Waiting for someone to join" message="Share your room code to start the conversation." />}{call.peerName && !call.hasRemoteVideo && <Waiting title={`Connecting to ${call.peerName}`} message="Setting up a secure connection..." />}<VideoLabel>{call.peerName || "Your guest"}</VideoLabel></div><div className="relative h-43.75 self-end overflow-hidden rounded-[10px] border border-[#263029] bg-[#171c19] max-sm:absolute max-sm:right-7.5 max-sm:top-23.75 max-sm:z-20 max-sm:h-40 max-sm:w-30"><video className="h-full w-full object-cover transform-[scaleX(-1)]" ref={attachLocalVideo} autoPlay muted playsInline /><VideoLabel>You</VideoLabel></div></section>
-        <footer className="flex min-h-19.5 items-center justify-between border-t border-[#252d28] px-[3vw] font-mono text-[11px] text-[#89948b] max-sm:flex-wrap max-sm:gap-3 max-sm:px-[4vw] max-sm:py-3"><div><span className="mr-2 inline-block h-1.5 w-1.5 rounded-full bg-[#c9e181]" />{call.status}</div><div className="flex gap-2"><button className={call.isMuted ? `${CONTROL_CLASS} bg-[#c9e181] text-[#192018]` : CONTROL_CLASS} onClick={call.toggleMute}>{call.isMuted ? "Mic off" : "Mute"}</button><button className={call.isCameraOff ? `${CONTROL_CLASS} bg-[#c9e181] text-[#192018]` : CONTROL_CLASS} onClick={() => void call.toggleCamera()}>{call.isCameraOff ? "Camera off" : "Camera"}</button></div><div className="font-mono text-[10px] text-[#58645b] max-sm:hidden">🔒 End-to-end connection</div></footer>
+        <header className="flex h-22 items-center justify-between border-b border-white/7 px-[3vw] max-sm:h-17.5"><Brand /><div className="flex items-center gap-3 font-mono text-[11px] text-[#79847b]"><span className="max-sm:hidden">Room</span><strong className="tracking-[.15em] text-[#dbe7c7]">{call.roomKey}</strong><button className={CONTROL_CLASS} onClick={copyRoom}>{copied ? "Copied" : "Copy code"}</button></div><span className="text-xs text-[#68736b] max-sm:hidden">{call.status}</span></header>
+        <section className="relative mx-[3vw] my-5 min-h-0 flex-1 flex items-center justify-center overflow-hidden rounded-2xl border border-[#263029] bg-[#101412] max-sm:mx-3 max-sm:my-3">
+          <video className="max-h-full max-w-full object-contain" ref={attachRemoteVideo} autoPlay playsInline />
+          {!call.peerName && <Waiting title="Waiting for someone to join" message="Share your call code with someone to start." />}
+          {call.peerName && !call.hasRemoteVideo && <Waiting title={`Connecting to ${call.peerName}`} message="Getting the call ready..." />}
+          {call.hasRemoteVideo && <VideoLabel>{call.peerName || "Your guest"}</VideoLabel>}
+          <DraggablePreview attachVideo={attachLocalVideo} visible={!call.isCameraOff} />
+        </section>
+        <footer className="relative flex min-h-19.5 shrink-0 items-center justify-center border-t border-[#252d28] px-[3vw] font-mono text-[11px] text-[#89948b] max-sm:min-h-20 max-sm:px-3 max-sm:py-3"><div className="absolute left-[3vw] max-sm:hidden"><span className="mr-2 inline-block h-1.5 w-1.5 rounded-full bg-[#c9e181]" />{call.status}</div><div className="flex items-center gap-3"><button aria-label={call.isMuted ? "Unmute microphone" : "Mute microphone"} title={call.isMuted ? "Unmute microphone" : "Mute microphone"} className={`flex h-12 w-12 items-center justify-center rounded-full ${call.isMuted ? "bg-[#c9e181] text-[#192018]" : "bg-[#1b211e] text-[#d5ddd5]"} border border-[#39453b]`} onClick={call.toggleMute}><Icon name={call.isMuted ? "mic-off" : "mic"} /></button><button aria-label={call.isCameraOff ? "Turn camera on" : "Turn camera off"} title={call.isCameraOff ? "Turn camera on" : "Turn camera off"} className={`flex h-12 w-12 items-center justify-center rounded-full ${call.isCameraOff ? "bg-[#c9e181] text-[#192018]" : "bg-[#1b211e] text-[#d5ddd5]"} border border-[#39453b]`} onClick={() => void call.toggleCamera()}><Icon name={call.isCameraOff ? "camera-off" : "camera"} /></button><button aria-label="Switch camera" title="Switch camera" className="hidden h-12 w-12 items-center justify-center rounded-full border border-[#39453b] bg-[#1b211e] text-[#d5ddd5] disabled:cursor-not-allowed disabled:opacity-40 max-sm:flex" onClick={() => void call.switchCamera()} disabled={call.isCameraOff}><Icon name="flip" /></button><button aria-label="Leave call" title="Leave call" className="flex h-12 w-12 items-center justify-center rounded-full border border-[#7d463c] bg-[#4a211d] text-[#ffb7a8]" onClick={call.leaveCall}><Icon name="leave" /></button></div><div className="absolute right-[3vw] font-mono text-[10px] text-[#58645b] max-sm:hidden">🔒 Secure call</div></footer>
       </main>
     );
   }
