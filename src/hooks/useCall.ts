@@ -192,7 +192,12 @@ export function useCall() {
     setError("");
     intentionalLeaveRef.current = false;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        // Start with the front camera when it is available. This also gives
+        // browsers that do not report facingMode a sensible initial direction.
+        video: { facingMode: { ideal: "user" } },
+        audio: true,
+      });
       let socket = new WebSocket(SIGNALING_URL);
       localStreamRef.current = stream;
       socketRef.current = socket;
@@ -201,8 +206,10 @@ export function useCall() {
       createPeerRef.current = () => {
         const peer = new RTCPeerConnection({ iceServers: ICE_SERVERS });
         peerRef.current = peer;
-        stream.getTracks().forEach((track) => {
-          const sender = peer.addTrack(track, stream);
+        // Use the current stream if a peer is recreated after a camera change.
+        const activeStream = localStreamRef.current || stream;
+        activeStream.getTracks().forEach((track) => {
+          const sender = peer.addTrack(track, activeStream);
           if (track.kind === "video") videoSenderRef.current = sender;
         });
         peer.ontrack = (event) => {
@@ -342,29 +349,17 @@ export function useCall() {
 
     try {
       const nextFacingMode = cameraFacingModeRef.current === "user" ? "environment" : "user";
-      let cameraStream: MediaStream;
-      let requestedFacingModeExactly = true;
-      try {
-        cameraStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { exact: nextFacingMode } },
-        });
-      } catch {
-        // Some mobile browsers do not support an exact facing-mode constraint,
-        // but can still honour it as a preference.
-        requestedFacingModeExactly = false;
-        cameraStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: nextFacingMode } },
-        });
-      }
+      const cameraStream = await navigator.mediaDevices.getUserMedia({
+        // `ideal` works across more mobile browsers than `exact`; when a
+        // browser supports the target camera, it selects it without rejecting
+        // the request solely because its camera metadata is incomplete.
+        video: { facingMode: { ideal: nextFacingMode } },
+      });
       const nextTrack = cameraStream.getVideoTracks()[0];
       const previousTrack = stream.getVideoTracks()[0];
 
-      // A deviceId represents a browser camera source, not necessarily a
-      // physical lens. In particular, mobile browsers can use one ID for both
-      // front and rear cameras, so it must not be used to count cameras.
       const actualFacingMode = nextTrack.getSettings().facingMode;
-      if (!requestedFacingModeExactly
-        && (actualFacingMode === "environment" || actualFacingMode === "user")
+      if ((actualFacingMode === "environment" || actualFacingMode === "user")
         && actualFacingMode !== nextFacingMode) {
         nextTrack.stop();
         setError("This browser could not switch to the other camera.");
@@ -373,7 +368,6 @@ export function useCall() {
 
       await sender.replaceTrack(nextTrack);
       if (previousTrack) {
-        previousTrack.stop();
         stream.removeTrack(previousTrack);
       }
       stream.addTrack(nextTrack);
@@ -381,7 +375,11 @@ export function useCall() {
       // Create a fresh MediaStream so the video element detects the change
       const freshStream = new MediaStream(stream.getTracks());
       localStreamRef.current = freshStream;
-      if (localVideoRef.current) localVideoRef.current.srcObject = freshStream;
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = freshStream;
+        void localVideoRef.current.play().catch(() => undefined);
+      }
+      previousTrack?.stop();
 
       if (actualFacingMode === "environment" || actualFacingMode === "user") {
         cameraFacingModeRef.current = actualFacingMode;
