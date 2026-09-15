@@ -343,28 +343,31 @@ export function useCall() {
     try {
       const nextFacingMode = cameraFacingModeRef.current === "user" ? "environment" : "user";
       let cameraStream: MediaStream;
+      let requestedFacingModeExactly = true;
       try {
         cameraStream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: { exact: nextFacingMode } },
         });
       } catch {
-        try {
-          cameraStream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: { ideal: nextFacingMode } },
-          });
-        } catch {
-          cameraStream = await navigator.mediaDevices.getUserMedia({ video: true });
-        }
+        // Some mobile browsers do not support an exact facing-mode constraint,
+        // but can still honour it as a preference.
+        requestedFacingModeExactly = false;
+        cameraStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: nextFacingMode } },
+        });
       }
       const nextTrack = cameraStream.getVideoTracks()[0];
       const previousTrack = stream.getVideoTracks()[0];
 
-      // Detect if the device didn't actually switch cameras
-      const previousDeviceId = previousTrack?.getSettings().deviceId;
-      const nextDeviceId = nextTrack.getSettings().deviceId;
-      if (previousDeviceId && nextDeviceId && previousDeviceId === nextDeviceId) {
+      // A deviceId represents a browser camera source, not necessarily a
+      // physical lens. In particular, mobile browsers can use one ID for both
+      // front and rear cameras, so it must not be used to count cameras.
+      const actualFacingMode = nextTrack.getSettings().facingMode;
+      if (!requestedFacingModeExactly
+        && (actualFacingMode === "environment" || actualFacingMode === "user")
+        && actualFacingMode !== nextFacingMode) {
         nextTrack.stop();
-        setError("This device only has one camera.");
+        setError("This browser could not switch to the other camera.");
         return;
       }
 
@@ -380,7 +383,6 @@ export function useCall() {
       localStreamRef.current = freshStream;
       if (localVideoRef.current) localVideoRef.current.srcObject = freshStream;
 
-      const actualFacingMode = nextTrack.getSettings().facingMode;
       if (actualFacingMode === "environment" || actualFacingMode === "user") {
         cameraFacingModeRef.current = actualFacingMode;
         setIsFrontCamera(actualFacingMode === "user");
