@@ -136,8 +136,9 @@ function Toast({ message, onDismiss }: { message: string; onDismiss: () => void 
 
 function App() {
   const call = useCall();
+  const roomCode = new URLSearchParams(window.location.search).get("room");
   const [name, setName] = useState("");
-  const [joinKey, setJoinKey] = useState("");
+  const [joinKey, setJoinKey] = useState(() => roomCode?.trim().toUpperCase() || "");
   const [copied, setCopied] = useState(false);
   const [localAspectRatio, setLocalAspectRatio] = useState(16 / 9);
   const [orientationKey, setOrientationKey] = useState(0);
@@ -196,7 +197,8 @@ function App() {
   const createRoom = () => validateAndConnect(createRoomKey(), "create");
   const joinRoom = () => validateAndConnect(joinKey.trim().toUpperCase(), "join");
   const copyRoom = async () => {
-    await navigator.clipboard.writeText(call.roomKey);
+    const joinLink = `${window.location.origin}/?room=${call.roomKey}`;
+    await navigator.clipboard.writeText(`Room Code: ${call.roomKey}\nJoin Link: ${joinLink}`);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1600);
   };
