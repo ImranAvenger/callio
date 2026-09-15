@@ -2,69 +2,20 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ICE_SERVERS, SIGNALING_URL } from "../constants/call";
 import type { Role, SignalMessage, View } from "../types/call";
 
-// Enable this on an HTTPS test build with `?cameraDebug=1`.
-const CAMERA_DEBUG = import.meta.env.DEV || new URLSearchParams(window.location.search).has("cameraDebug");
+function findAlternativeCamera(
+  devices: MediaDeviceInfo[],
+  currentDeviceId: string | undefined,
+  facingMode: "user" | "environment",
+) {
+  const alternatives = devices.filter((device) => device.deviceId !== currentDeviceId);
+  const directionLabels = facingMode === "environment"
+    ? ["back", "rear", "environment"]
+    : ["front", "user"];
 
-function describeTrack(track: MediaStreamTrack | undefined) {
-  if (!track) return null;
-
-  return {
-    constraints: track.getConstraints(),
-    enabled: track.enabled,
-    id: track.id,
-    label: track.label,
-    muted: track.muted,
-    readyState: track.readyState,
-    settings: track.getSettings(),
-  };
-}
-
-function describeLocalVideo(video: HTMLVideoElement | null) {
-  const stream = video?.srcObject instanceof MediaStream ? video.srcObject : null;
-
-  return {
-    attachedVideoTrackIds: stream?.getVideoTracks().map((track) => track.id) ?? [],
-    paused: video?.paused ?? null,
-    readyState: video?.readyState ?? null,
-    srcObject: video?.srcObject ?? null,
-    videoHeight: video?.videoHeight ?? null,
-    videoWidth: video?.videoWidth ?? null,
-  };
-}
-
-function cameraLog(stage: string, details: object = {}) {
-  if (CAMERA_DEBUG) console.log(`[CAMERA-DEBUG] ${stage}`, details);
-}
-
-function cameraWarn(stage: string, details: object = {}) {
-  if (CAMERA_DEBUG) console.warn(`[CAMERA-DEBUG] ${stage}`, details);
-}
-
-function cameraError(stage: string, error: unknown, details: object = {}) {
-  if (CAMERA_DEBUG) console.error(`[CAMERA-DEBUG] ${stage}`, {
-    ...details,
-    error,
-    message: error instanceof Error ? error.message : String(error),
-    name: error instanceof DOMException ? error.name : undefined,
-  });
-}
-
-async function logVideoInputDevices(stage: string) {
-  try {
-    const videoInputs = (await navigator.mediaDevices.enumerateDevices())
-      .filter((device) => device.kind === "videoinput");
-    cameraLog(stage, {
-      devices: videoInputs.map((device) => ({
-        deviceId: device.deviceId,
-        groupId: device.groupId,
-        kind: device.kind,
-        label: device.label,
-      })),
-      videoInputCount: videoInputs.length,
-    });
-  } catch (error) {
-    cameraError("enumerateDevices() failed", error, { stage });
-  }
+  return alternatives.find((device) => {
+    const label = device.label.toLowerCase();
+    return directionLabels.some((direction) => label.includes(direction));
+  }) || alternatives[0];
 }
 
 export function useCall() {
@@ -350,7 +301,6 @@ export function useCall() {
         setIsFrontCamera(initialFacingMode === "user");
       }
     } catch (err) {
-      cameraError("initial getUserMedia() failed", err);
       setError(err instanceof DOMException && err.name === "NotAllowedError"
         ? "Camera and microphone permission are required to join."
         : "Could not start the call. Check your camera and server connection.");
@@ -387,11 +337,7 @@ export function useCall() {
         cameraStream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: { ideal: cameraFacingModeRef.current } },
         });
-      } catch (error) {
-        cameraWarn("camera-on preferred getUserMedia() failed; trying video: true", {
-          requestedFacingMode: cameraFacingModeRef.current,
-          error,
-        });
+      } catch {
         cameraStream = await navigator.mediaDevices.getUserMedia({ video: true });
       }
       const track = cameraStream.getVideoTracks()[0];
@@ -407,10 +353,7 @@ export function useCall() {
       }
       setIsCameraOff(false);
       send({ type: "media_state", camera_enabled: true });
-    } catch (error) {
-      cameraError("camera-on operation failed", error, {
-        requestedFacingMode: cameraFacingModeRef.current,
-      });
+    } catch {
       setError("Could not turn the camera back on. Check your camera permissions.");
     }
   };
@@ -418,120 +361,91 @@ export function useCall() {
   const switchCamera = async () => {
     const stream = localStreamRef.current;
     const sender = videoSenderRef.current;
-    const currentTrack = stream?.getVideoTracks()[0];
-    cameraLog("switchCamera() started", {
-      cameraFacingMode: cameraFacingModeRef.current,
-      currentTrack: describeTrack(currentTrack),
-      hasLocalStream: Boolean(stream),
-      hasVideoSender: Boolean(sender),
-      isCameraOff,
-      isFrontCamera,
-    });
-    if (!stream || !sender || isCameraOff) {
-      cameraWarn("switchCamera() skipped", {
-        hasLocalStream: Boolean(stream),
-        hasVideoSender: Boolean(sender),
-        isCameraOff,
-      });
-      return;
-    }
+    const previousTrack = stream?.getVideoTracks()[0];
+    if (!stream || !sender || !previousTrack || isCameraOff) return;
+
+    const previousFacingMode = cameraFacingModeRef.current;
+    const nextFacingMode = previousFacingMode === "user" ? "environment" : "user";
+    const previousDeviceId = previousTrack.getSettings().deviceId;
+    let videoDevices: MediaDeviceInfo[] = [];
 
     try {
-      const nextFacingMode = cameraFacingModeRef.current === "user" ? "environment" : "user";
-      await logVideoInputDevices("video input devices before switch");
-      cameraLog("requesting camera", {
-        constraintType: "ideal",
-        requestedFacingMode: nextFacingMode,
-      });
-      let cameraStream: MediaStream;
-      try {
-        cameraStream = await navigator.mediaDevices.getUserMedia({
-          // `ideal` works across more mobile browsers than `exact`; when a
-          // browser supports the target camera, it selects it without rejecting
-          // the request solely because its camera metadata is incomplete.
-          video: { facingMode: { ideal: nextFacingMode } },
-        });
-      } catch (error) {
-        cameraError("getUserMedia() failed", error, {
-          constraintType: "ideal",
-          requestedFacingMode: nextFacingMode,
-        });
-        throw error;
-      }
-      const nextTrack = cameraStream.getVideoTracks()[0];
-      const previousTrack = stream.getVideoTracks()[0];
+      videoDevices = (await navigator.mediaDevices.enumerateDevices())
+        .filter((device) => device.kind === "videoinput");
+    } catch {
+      // Some browsers expose no device inventory; facingMode remains the fallback.
+    }
 
-      const actualFacingMode = nextTrack.getSettings().facingMode;
-      cameraLog("new camera track acquired", {
-        newTrack: describeTrack(nextTrack),
-        requestedFacingMode: nextFacingMode,
-        streamExists: Boolean(cameraStream),
-        streamTrackCount: cameraStream.getTracks().length,
-        videoTrackCount: cameraStream.getVideoTracks().length,
-      });
-      if ((actualFacingMode === "environment" || actualFacingMode === "user")
-        && actualFacingMode !== nextFacingMode) {
-        cameraWarn("returned track does not match requested facing mode", {
-          actualFacingMode,
-          requestedFacingMode: nextFacingMode,
-        });
-        nextTrack.stop();
-        cameraLog("rejected new track after stop", { newTrack: describeTrack(nextTrack) });
-        setError("This browser could not switch to the other camera.");
-        return;
-      }
+    const targetDevice = previousDeviceId
+      ? findAlternativeCamera(videoDevices, previousDeviceId, nextFacingMode)
+      : undefined;
+    const targetConstraints: MediaTrackConstraints = targetDevice
+      ? { deviceId: { exact: targetDevice.deviceId } }
+      : { facingMode: { ideal: nextFacingMode } };
+    const restoreConstraints: MediaTrackConstraints = previousDeviceId
+      ? { deviceId: { exact: previousDeviceId } }
+      : { facingMode: { ideal: previousFacingMode } };
 
-      cameraLog("calling replaceTrack()", {
-        newTrack: describeTrack(nextTrack),
-        oldTrack: describeTrack(sender.track ?? undefined),
-      });
-      try {
-        await sender.replaceTrack(nextTrack);
-      } catch (error) {
-        cameraError("replaceTrack() failed", error, {
-          newTrack: describeTrack(nextTrack),
-          oldTrack: describeTrack(sender.track ?? undefined),
-        });
-        throw error;
-      }
-      cameraLog("replaceTrack() success", {
-        senderTrack: describeTrack(sender.track ?? undefined),
-      });
-      if (previousTrack) {
-        stream.removeTrack(previousTrack);
-      }
-      stream.addTrack(nextTrack);
-
-      // Create a fresh MediaStream so the video element detects the change
+    const attachTrackToLocalPreview = (track: MediaStreamTrack) => {
+      stream.addTrack(track);
       const freshStream = new MediaStream(stream.getTracks());
       localStreamRef.current = freshStream;
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = freshStream;
-        void localVideoRef.current.play().catch((error) => {
-          cameraError("local preview play() failed", error);
-        });
+        void localVideoRef.current.play().catch(() => undefined);
       }
-      cameraLog("local video after switch", {
-        localPreview: describeLocalVideo(localVideoRef.current),
-        localStream: localStreamRef.current,
-        localStreamTrack: describeTrack(localStreamRef.current.getVideoTracks()[0]),
-      });
-      if (previousTrack) {
-        cameraLog("stopping old camera track", { previousTrack: describeTrack(previousTrack) });
+    };
+
+    const restorePreviousCamera = async () => {
+      const restoreStream = await navigator.mediaDevices.getUserMedia({ video: restoreConstraints });
+      const restoreTrack = restoreStream.getVideoTracks()[0];
+      await sender.replaceTrack(restoreTrack);
+      attachTrackToLocalPreview(restoreTrack);
+      cameraFacingModeRef.current = previousFacingMode;
+      setIsFrontCamera(previousFacingMode === "user");
+    };
+
+    try {
+      // This device cannot start its rear camera while its front camera is
+      // captured. Release the current source before requesting the alternative.
+      await sender.replaceTrack(null);
+      stream.removeTrack(previousTrack);
+      previousTrack.stop();
+
+      let nextTrack: MediaStreamTrack;
+      try {
+        const cameraStream = await navigator.mediaDevices.getUserMedia({ video: targetConstraints });
+        nextTrack = cameraStream.getVideoTracks()[0];
+      } catch (error) {
+        try {
+          await restorePreviousCamera();
+        } catch {
+          // Preserve the original acquisition error for the user-facing message.
+        }
+        throw error;
       }
-      previousTrack?.stop();
-      if (previousTrack) {
-        cameraLog("old camera track after stop", { previousTrack: describeTrack(previousTrack) });
+
+      const actualFacingMode = nextTrack.getSettings().facingMode;
+      if ((actualFacingMode === "environment" || actualFacingMode === "user")
+        && actualFacingMode !== nextFacingMode) {
+        nextTrack.stop();
+        await restorePreviousCamera();
+        setError("This browser could not switch to the other camera.");
+        return;
       }
-      cameraLog("new camera track state", { newTrack: describeTrack(nextTrack) });
-      await logVideoInputDevices("video input devices after switch");
-      window.setTimeout(() => {
-        cameraLog("local preview state after 500ms", {
-          expectedTrackId: nextTrack.id,
-          localPreview: describeLocalVideo(localVideoRef.current),
-          newTrack: describeTrack(nextTrack),
-        });
-      }, 500);
+
+      try {
+        await sender.replaceTrack(nextTrack);
+      } catch (error) {
+        nextTrack.stop();
+        try {
+          await restorePreviousCamera();
+        } catch {
+          // Preserve the replacement error for the user-facing message.
+        }
+        throw error;
+      }
+      attachTrackToLocalPreview(nextTrack);
 
       if (actualFacingMode === "environment" || actualFacingMode === "user") {
         cameraFacingModeRef.current = actualFacingMode;
@@ -540,11 +454,7 @@ export function useCall() {
         cameraFacingModeRef.current = nextFacingMode;
         setIsFrontCamera(nextFacingMode === "user");
       }
-    } catch (error) {
-      cameraError("camera switch error", error, {
-        currentTrack: describeTrack(stream.getVideoTracks()[0]),
-        senderTrack: describeTrack(sender.track ?? undefined),
-      });
+    } catch {
       setError("This device could not switch cameras.");
     }
   };
