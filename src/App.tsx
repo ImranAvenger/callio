@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState, type PointerEvent, type SyntheticEvent } from "react";
+import { Copy, CopyCheck, ExternalLink, Mic, MicOff, SquareArrowRightExit, SwitchCamera, Video, VideoOff } from "lucide-react";
 import { CONTROL_CLASS, createRoomKey } from "./constants/call";
 import { useCall } from "./hooks/useCall";
 
@@ -14,16 +15,17 @@ function VideoLabel({ children }: { children: string }) {
   return <span className="absolute bottom-3 left-4 rounded bg-black/60 px-2 py-1.5 font-mono text-[11px] text-[#d8e1d5]">{children}</span>;
 }
 
-function Icon({ name }: { name: "mic" | "mic-off" | "camera" | "camera-off" | "flip" | "leave" }) {
-  const paths = {
-    mic: <><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3M8 22h8" /></>,
-    "mic-off": <><path d="m3 3 18 18M9 5v7a3 3 0 0 0 5 2.2M15 9V5a3 3 0 0 0-5-2.2M5 10v2a7 7 0 0 0 11.2 5.6M12 19v3M8 22h8" /></>,
-    camera: <><path d="m16 7 5-3v16l-5-3M3 6h13v12H3z" /></>,
-    "camera-off": <><path d="m3 3 18 18M16 7l5-3v16l-5-3M3 6h7M3 18h13V9" /></>,
-    flip: <><path d="M20 7h-7l2.5-2.5M4 17h7l-2.5 2.5M17 4.5A7 7 0 0 1 20 10M7 19.5A7 7 0 0 1 4 14" /></>,
-    leave: <><path d="M10 17l5-5-5-5M15 12H3M21 19V5a2 2 0 0 0-2-2h-5M14 21h5a2 2 0 0 0 2-2" /></>,
+function Icon({ name }: { name: "mic" | "mic-off" | "video" | "video-off" | "flip" | "leave" }) {
+  const icons = {
+    mic: Mic,
+    "mic-off": MicOff,
+    video: Video,
+    "video-off": VideoOff,
+    flip: SwitchCamera,
+    leave: SquareArrowRightExit,
   };
-  return <svg aria-hidden="true" className="h-5 w-5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24">{paths[name]}</svg>;
+  const IconComponent = icons[name];
+  return <IconComponent aria-hidden="true" className="h-5 w-5" strokeWidth={2.25} />;
 }
 
 function DraggablePreview({
@@ -129,7 +131,7 @@ function Toast({ message, onDismiss }: { message: string; onDismiss: () => void 
     <div className="fixed right-5 top-5 z-50 flex max-w-sm items-start gap-3 rounded-lg border border-[#8e5045] bg-[#2b1917] px-4 py-3 text-sm text-[#ffd0c5] shadow-2xl shadow-black/30" role="alert">
       <span className="mt-0.5 text-[#f0a08f]">!</span>
       <span className="flex-1">{message}</span>
-      <button className="text-lg leading-none text-[#f0a08f] hover:text-white" onClick={onDismiss} aria-label="Dismiss notification">×</button>
+      <button className="text-lg leading-none text-[#f0a08f] transition hover:scale-110 hover:text-white" onClick={onDismiss} aria-label="Dismiss notification">×</button>
     </div>
   );
 }
@@ -207,7 +209,7 @@ function App() {
     return (
       <main className="flex h-dvh min-h-0 flex-col overflow-hidden bg-[#0e1110] text-[#f5f1eb]">
         <Toast message={call.error} onDismiss={() => call.setError("")} />
-        <header className="flex h-22 items-center justify-between border-b border-white/7 px-[3vw] max-sm:h-17.5"><Brand /><div className="flex items-center gap-3 font-mono text-[11px] text-[#79847b]"><span className="max-sm:hidden">Room</span><strong className="tracking-[.15em] text-[#dbe7c7]">{call.roomKey}</strong><button className={CONTROL_CLASS} onClick={copyRoom}>{copied ? "Copied" : "Copy code"}</button></div><span className="text-xs text-[#68736b] max-sm:hidden">{call.status}</span></header>
+        <header className="flex min-h-22 items-center justify-between gap-4 border-b border-white/7 px-[3vw] max-sm:min-h-17.5 max-sm:px-3"><Brand /><div className="flex min-w-0 items-center gap-2 font-mono text-[11px] text-[#79847b]"><span className="max-sm:hidden">Room</span><strong className="truncate tracking-[.15em] text-[#dbe7c7]">{call.roomKey}</strong><button className={`${CONTROL_CLASS} inline-flex shrink-0 items-center gap-2 px-3 max-sm:px-2.5`} onClick={copyRoom} aria-label={copied ? "Room code copied" : "Copy room code"} title={copied ? "Copied" : "Copy room code"}>{copied ? <CopyCheck aria-hidden="true" className="h-3.5 w-3.5" /> : <Copy aria-hidden="true" className="h-3.5 w-3.5" />}{copied ? "Copied" : <span className="max-sm:hidden">Copy code</span>}</button></div><span className="hidden text-xs text-[#68736b] lg:inline">{call.status}</span></header>
         <section className="relative mx-[3vw] my-5 min-h-0 flex-1 flex items-center justify-center overflow-hidden rounded-2xl border border-[#263029] bg-[#101412] max-sm:mx-3 max-sm:my-3">
           <video className={`h-full w-full object-contain ${call.isRemoteCameraOn ? "" : "hidden"}`} ref={attachRemoteVideo} autoPlay playsInline />
           {!call.peerName && <Waiting title="Waiting for someone to join" message="Share your call code with someone to start." />}
@@ -216,20 +218,20 @@ function App() {
           {!call.isRemoteCameraOn && call.peerName && <div className="absolute inset-0 flex flex-col items-center justify-center gap-4"><div className="flex h-24 w-24 items-center justify-center rounded-full bg-[#c9e181] text-4xl font-semibold text-[#192018]">{call.peerName.charAt(0).toUpperCase()}</div><span className="text-base text-[#d5ddd5]">{call.peerName}</span></div>}
           <DraggablePreview attachVideo={attachLocalVideo} visible={!call.isCameraOff} aspectRatio={localAspectRatio} onMetadata={(event) => setLocalAspectRatio(event.currentTarget.videoWidth / event.currentTarget.videoHeight || 16 / 9)} orientationKey={orientationKey} />
         </section>
-        <footer className="relative flex min-h-19.5 shrink-0 items-center justify-center border-t border-[#252d28] px-[3vw] font-mono text-[11px] text-[#89948b] max-sm:min-h-20 max-sm:px-3 max-sm:py-3"><div className="absolute left-[3vw] max-sm:hidden"><span className="mr-2 inline-block h-1.5 w-1.5 rounded-full bg-[#c9e181]" />{call.status}</div><div className="flex items-center gap-3"><button aria-label={call.isMuted ? "Unmute microphone" : "Mute microphone"} title={call.isMuted ? "Unmute microphone" : "Mute microphone"} className={`flex h-12 w-12 items-center justify-center rounded-full ${call.isMuted ? "bg-[#c9e181] text-[#192018]" : "bg-[#1b211e] text-[#d5ddd5]"} border border-[#39453b]`} onClick={call.toggleMute}><Icon name={call.isMuted ? "mic-off" : "mic"} /></button><button aria-label={call.isCameraOff ? "Turn camera on" : "Turn camera off"} title={call.isCameraOff ? "Turn camera on" : "Turn camera off"} className={`flex h-12 w-12 items-center justify-center rounded-full ${call.isCameraOff ? "bg-[#c9e181] text-[#192018]" : "bg-[#1b211e] text-[#d5ddd5]"} border border-[#39453b]`} onClick={() => void call.toggleCamera()}><Icon name={call.isCameraOff ? "camera-off" : "camera"} /></button><button aria-label="Switch camera" title="Switch camera" className="hidden h-12 w-12 items-center justify-center rounded-full border border-[#39453b] bg-[#1b211e] text-[#d5ddd5] disabled:cursor-not-allowed disabled:opacity-40 max-sm:flex" onClick={() => void call.switchCamera()} disabled={call.isCameraOff}><Icon name="flip" /></button><button aria-label="Leave call" title="Leave call" className="flex h-12 w-12 items-center justify-center rounded-full border border-[#7d463c] bg-[#4a211d] text-[#ffb7a8]" onClick={call.leaveCall}><Icon name="leave" /></button></div><div className="absolute right-[3vw] font-mono text-[10px] text-[#58645b] max-sm:hidden">🔒 Secure call</div></footer>
+        <footer className="relative flex min-h-19.5 shrink-0 items-center justify-center border-t border-[#252d28] px-[3vw] pb-[env(safe-area-inset-bottom)] font-mono text-[11px] text-[#89948b] max-sm:min-h-20 max-sm:px-3 max-sm:py-3 max-sm:pb-[calc(0.75rem+env(safe-area-inset-bottom))]"><div className="absolute left-[3vw] max-sm:hidden"><span className="mr-2 inline-block h-1.5 w-1.5 rounded-full bg-[#c9e181]" />{call.status}</div><div className="flex items-center gap-2 sm:gap-3"><button aria-label={call.isMuted ? "Unmute microphone" : "Mute microphone"} title={call.isMuted ? "Unmute microphone" : "Mute microphone"} className={`flex h-12 w-12 items-center justify-center rounded-full border border-[#39453b] transition hover:scale-105 hover:border-[#c9e181] ${call.isMuted ? "bg-[#c9e181] text-[#192018]" : "bg-[#1b211e] text-[#d5ddd5] hover:bg-[#28332b]"}`} onClick={call.toggleMute}><Icon name={call.isMuted ? "mic-off" : "mic"} /></button><button aria-label={call.isCameraOff ? "Turn camera on" : "Turn camera off"} title={call.isCameraOff ? "Turn camera on" : "Turn camera off"} className={`flex h-12 w-12 items-center justify-center rounded-full border border-[#39453b] transition hover:scale-105 hover:border-[#c9e181] ${call.isCameraOff ? "bg-[#c9e181] text-[#192018]" : "bg-[#1b211e] text-[#d5ddd5] hover:bg-[#28332b]"}`} onClick={() => void call.toggleCamera()}><Icon name={call.isCameraOff ? "video-off" : "video"} /></button><button aria-label="Switch camera" title="Switch camera" className="hidden h-12 w-12 items-center justify-center rounded-full border border-[#39453b] bg-[#1b211e] text-[#d5ddd5] transition hover:scale-105 hover:border-[#c9e181] hover:bg-[#28332b] disabled:cursor-not-allowed disabled:opacity-40 max-sm:flex" onClick={() => void call.switchCamera()} disabled={call.isCameraOff}><Icon name="flip" /></button><button aria-label="Leave call" title="Leave call" className="flex h-12 w-12 items-center justify-center rounded-full border border-[#7d463c] bg-[#4a211d] text-[#ffb7a8] transition hover:scale-105 hover:border-[#ff8f7c] hover:bg-[#632d27]" onClick={call.leaveCall}><Icon name="leave" /></button></div><div className="absolute right-[3vw] font-mono text-[10px] text-[#58645b] max-sm:hidden">🔒 Secure call</div></footer>
       </main>
     );
   }
 
   return (
-    <main className="relative h-screen overflow-hidden bg-[#111313] text-[#f5f1eb]">
+    <main className="relative min-h-dvh overflow-x-hidden overflow-y-auto bg-[#111313] text-[#f5f1eb]">
       <div className="pointer-events-none absolute -right-40 -top-44 h-155 w-155 rounded-full bg-[radial-gradient(circle,rgba(82,116,94,.2),transparent_68%)]" />
       <Toast message={call.error} onDismiss={() => call.setError("")} />
-      <header className="relative z-10 flex h-18 items-center justify-between border-b border-white/7 px-[6vw] max-sm:h-15.5">
+      <header className="relative z-10 flex min-h-18 items-center justify-between border-b border-white/7 px-[6vw] max-sm:min-h-15.5 max-sm:px-4">
         <Brand />
         <span className="text-[13px] text-[#858d87] max-sm:hidden">Clear video calls, no account needed</span>
       </header>
-      <section className="relative z-10 mx-auto grid h-[calc(100vh-112px)] w-[min(980px,88vw)] grid-cols-[1fr_390px] items-center gap-14 py-8 max-lg:flex max-lg:flex-col max-lg:justify-center max-lg:gap-6 max-sm:h-[calc(100vh-92px)] max-sm:w-[88vw] max-sm:gap-4 max-sm:py-2">
+      <section className="relative z-10 mx-auto grid min-h-[calc(100dvh-112px)] w-[min(980px,88vw)] grid-cols-[minmax(0,1fr)_minmax(300px,390px)] items-center gap-14 py-8 max-lg:flex max-lg:min-h-0 max-lg:flex-col max-lg:justify-center max-lg:gap-6 max-sm:w-[calc(100%-2rem)] max-sm:gap-4 max-sm:py-6">
         <div className="max-lg:text-center">
           <div className="mb-5 flex items-center gap-2 text-sm text-[#afbdac] max-lg:justify-center max-sm:mb-2"><span className="h-2 w-2 rounded-full bg-[#c9e181]" />Ready to talk?</div>
           <h1 className="max-w-xl text-[clamp(48px,6.5vw,82px)] font-semibold leading-[.94] tracking-[-.075em] max-lg:max-w-none max-sm:text-[42px]">Call someone<br /><em className="font-display font-medium tracking-[-.06em] text-[#c9e181]">you care about.</em></h1>
@@ -240,13 +242,23 @@ function App() {
           <h2 className="text-xl font-semibold">Start a call</h2>
           <p className="mt-1 text-sm text-[#778078]">First, tell us your name.</p>
           <label className="mb-2 mt-5 block text-xs font-medium text-[#9da39d]" htmlFor="name">Your name</label>
-          <input id="name" className="w-full rounded-lg border border-[#303934] bg-[#111513] px-4 py-3.5 outline-none placeholder:text-[#69736b] focus:border-[#a7c776] focus:ring-4 focus:ring-[#a7c776]/10" value={name} onChange={(event) => setName(event.target.value)} placeholder="Enter your name" maxLength={40} />
-          <button className="mt-4 flex w-full items-center gap-3 rounded-lg bg-[#c9e181] px-4 py-3.5 text-left font-medium text-[#152018] transition hover:-translate-y-0.5 hover:bg-[#d7ed95]" onClick={createRoom}><span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#aec568] text-lg">＋</span><span className="flex-1">Start a new call</span><b>→</b></button>
+          <input id="name" className="w-full rounded-lg border border-[#303934] bg-[#111513] px-4 py-3.5 text-base outline-none placeholder:text-[#69736b] focus:border-[#a7c776] focus:ring-4 focus:ring-[#a7c776]/10" value={name} onChange={(event) => setName(event.target.value)} placeholder="Enter your name" maxLength={40} />
+          <button className="group relative mt-4 flex w-full items-center gap-3 overflow-hidden rounded-xl border border-[#d9ef9c] bg-linear-to-br from-[#d7ed95] via-[#c9e181] to-[#aec568] px-4 py-3.5 text-left text-[#152018] shadow-[0_10px_24px_rgba(174,197,104,.18)] transition duration-200 hover:-translate-y-1 hover:shadow-[0_14px_30px_rgba(174,197,104,.3)] active:translate-y-0 active:shadow-[0_6px_14px_rgba(174,197,104,.2)]" onClick={createRoom}>
+            <span className="pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-full bg-white/20 blur-2xl transition duration-300 group-hover:scale-150" />
+            <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#263523]/15 ring-1 ring-[#263523]/15 transition duration-200 group-hover:bg-[#263523]/25">
+              <Video aria-hidden="true" className="h-5 w-5" strokeWidth={2.25} />
+            </span>
+            <span className="relative flex-1">
+              <span className="block text-sm font-semibold">Start a new call</span>
+              <span className="mt-0.5 block text-[11px] text-[#35452b]">Create a private room instantly</span>
+            </span>
+            <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#192719]/10 text-lg transition duration-200 group-hover:translate-x-1 group-hover:bg-[#192719]/20" aria-hidden="true">→</span>
+          </button>
           <div className="my-5 flex items-center gap-3 text-center text-xs text-[#667069]"><span className="h-px flex-1 bg-[#29302c]" />or<span className="h-px flex-1 bg-[#29302c]" /></div>
-          <div className="flex gap-2 max-sm:flex-col"><input className="min-w-0 flex-1 rounded-lg border border-[#303934] bg-[#111513] px-4 py-3.5 uppercase tracking-[.12em] outline-none placeholder:normal-case placeholder:tracking-normal focus:border-[#a7c776]" value={joinKey} onChange={(event) => setJoinKey(event.target.value.toUpperCase())} onKeyDown={(event) => event.key === "Enter" && joinRoom()} placeholder="Call code" maxLength={6} /><button className="rounded-lg border border-[#3e4940] px-4 py-3.5 text-sm text-[#d3d9d0] transition hover:border-[#c9e181] hover:text-[#c9e181] max-sm:py-3.5" onClick={joinRoom}>Join call</button></div>
+          <div className="flex gap-2 max-sm:flex-col"><input className="min-w-0 flex-1 rounded-lg border border-[#303934] bg-[#111513] px-4 py-3.5 text-base uppercase tracking-[.12em] outline-none placeholder:normal-case placeholder:tracking-normal focus:border-[#a7c776]" value={joinKey} onChange={(event) => setJoinKey(event.target.value.toUpperCase())} onKeyDown={(event) => event.key === "Enter" && joinRoom()} placeholder="Call code" maxLength={6} /><button className="rounded-lg border border-[#3e4940] px-4 py-3.5 text-sm text-[#d3d9d0] transition hover:border-[#c9e181] hover:text-[#c9e181] max-sm:py-3.5" onClick={joinRoom}>Join call</button></div>
         </div>
       </section>
-      <footer className="absolute bottom-5 left-[6vw] right-[6vw] flex justify-between text-xs text-[#545e57] max-sm:bottom-2 max-sm:text-[10px]"><span>© 2026 callio</span><span>Works in your browser</span></footer>
+      <footer className="absolute bottom-5 left-[6vw] right-[6vw] flex items-center justify-between gap-4 text-xs text-[#545e57] max-sm:bottom-2 max-sm:left-4 max-sm:right-4 max-sm:text-[10px]"><span>© 2026 callio</span><a className="inline-flex items-center gap-1.5 transition hover:text-[#c9e181]" href="https://github.com/ImranAvenger" target="_blank" rel="noreferrer"><ExternalLink aria-hidden="true" className="h-3.5 w-3.5" />Built by ImranAvenger</a><span className="max-sm:hidden">Works in your browser</span></footer>
     </main>
   );
 }

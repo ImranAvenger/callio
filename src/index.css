@@ -7,5 +7,8 @@
   --font-display: "Playfair Display", serif;
 }
 
-body { min-width: 320px; background: #111313; }
+html, body, #root { min-width: 320px; min-height: 100%; }
+body { overflow-x: hidden; background: #111313; }
 button, input { font: inherit; }
+button { cursor: pointer; touch-action: manipulation; }
+button:disabled { cursor: not-allowed; }
