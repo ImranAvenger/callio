@@ -1,15 +1,15 @@
-const turnUrls = import.meta.env.TURN_URLS
+const turnUrls = import.meta.env.VITE_TURN_URLS
   ?.split(",")
   .map((url: string) => url.trim())
   .filter(Boolean);
 
 export const ICE_SERVERS: RTCConfiguration["iceServers"] = [
   { urls: "stun:stun.l.google.com:19302" },
-  ...(turnUrls?.length && import.meta.env.TURN_USERNAME && import.meta.env.TURN_CREDENTIAL
+  ...(turnUrls?.length && import.meta.env.VITE_TURN_USERNAME && import.meta.env.VITE_TURN_CREDENTIAL
     ? [{
         urls: turnUrls,
-        username: import.meta.env.TURN_USERNAME,
-        credential: import.meta.env.TURN_CREDENTIAL,
+        username: import.meta.env.VITE_TURN_USERNAME,
+        credential: import.meta.env.VITE_TURN_CREDENTIAL,
       }]
     : []),
 ];
