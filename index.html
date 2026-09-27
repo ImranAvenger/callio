@@ -6,12 +6,52 @@
     <link rel="apple-touch-icon" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#111313" />
+    <meta name="description" content="Callio is a free, private video calling app that works in your browser. Start a call instantly with no account or download required." />
+    <meta name="robots" content="index, follow" />
+    <meta name="application-name" content="Callio" />
+    <meta name="author" content="ImranAvenger" />
     <meta name="google-site-verification" content="v9MbSbqx3zPHsuaOrcJIK86T4IvCCc31yd5Jjk2AUYg" />
-    <title>callio</title>
+    <title>Callio — Private Video Calls in Your Browser</title>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Callio — Private Video Calls in Your Browser" />
+    <meta property="og:description" content="Start a clear, private video call in seconds. No account, download, or sign-up required." />
+    <meta property="og:site_name" content="Callio" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Callio — Private Video Calls in Your Browser" />
+    <meta name="twitter:description" content="Start a clear, private video call in seconds. No account, download, or sign-up required." />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "Callio",
+        "description": "A free, private video calling app that works in your browser with no account required.",
+        "applicationCategory": "CommunicationApplication",
+        "operatingSystem": "Web",
+        "browserRequirements": "Requires a modern browser with WebRTC support",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        },
+        "featureList": [
+          "Browser-based video calls",
+          "No account or sign-up required",
+          "Private peer-to-peer calling",
+          "Shareable call rooms"
+        ]
+      }
+    </script>
     <link rel="stylesheet" href="/src/index.css" />
   </head>
   <body>
     <div id="root"></div>
+    <noscript>
+      <main>
+        <h1>Private video calls in your browser</h1>
+        <p>Callio lets you start a clear video call in seconds, with no account or download required.</p>
+        <p>Enable JavaScript to create or join a call.</p>
+      </main>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
