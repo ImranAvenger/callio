@@ -1,2 +1,4 @@
 User-agent: *
 Allow: /
+
+Sitemap: https://callio.imranlab.tech/sitemap.xml
