@@ -15,7 +15,8 @@ export const ICE_SERVERS: RTCConfiguration["iceServers"] = [
 ];
 
 
-export const SIGNALING_URL = "wss://api.imranlab.tech/v1/call/ws";
+export const SIGNALING_URL =
+  import.meta.env.VITE_SIGNALING_SERVER_URL || "wss://callio-api-mufm.onrender.com/call/ws";
 
 export const INPUT_CLASS =
   "w-full rounded-md border border-[#303934] bg-[#1a1e1c] px-4 py-3.5 text-[#f5f1eb] outline-none placeholder:text-[#69736b] focus:border-[#a7c776] focus:ring-4 focus:ring-[#a7c776]/10";

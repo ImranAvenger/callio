@@ -49,6 +49,8 @@ export function useCall() {
   const roleRef = useRef<Role | null>(null);
   const socketReconnectAttemptsRef = useRef(0);
   const createPeerRef = useRef<(() => RTCPeerConnection) | null>(null);
+  const pingIntervalRef = useRef<number | null>(null);
+  const socketConnectTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     sessionStorage.setItem("callio-participant-id", participantIdRef.current);
@@ -72,8 +74,34 @@ export function useCall() {
     if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
   }, []);
 
+  const stopHeartbeat = useCallback(() => {
+    if (pingIntervalRef.current !== null) {
+      window.clearInterval(pingIntervalRef.current);
+      pingIntervalRef.current = null;
+    }
+  }, []);
+
+  const startHeartbeat = useCallback(() => {
+    stopHeartbeat();
+    pingIntervalRef.current = window.setInterval(() => {
+      const socket = socketRef.current;
+      if (socket?.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: "ping" }));
+      }
+    }, 15000);
+  }, [stopHeartbeat]);
+
   const leaveCall = useCallback(() => {
     intentionalLeaveRef.current = true;
+    stopHeartbeat();
+    if (socketConnectTimerRef.current !== null) {
+      window.clearTimeout(socketConnectTimerRef.current);
+      socketConnectTimerRef.current = null;
+    }
+    if (reconnectTimerRef.current !== null) {
+      window.clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
     if (socketRef.current?.readyState === WebSocket.OPEN && roomKeyRef.current) {
       socketRef.current.send(JSON.stringify({ type: "leave" }));
     }
@@ -98,7 +126,7 @@ export function useCall() {
     setIsCameraOff(false);
     setIsFrontCamera(true);
     setIsRemoteCameraOn(true);
-  }, []);
+  }, [stopHeartbeat]);
 
   useEffect(() => () => leaveCall(), [leaveCall]);
 
@@ -201,12 +229,21 @@ export function useCall() {
     if (message.type === "invalid_name") {
       setError("The display name is invalid.");
       leaveCall();
+      return;
+    }
+    if (message.type === "invalid_request") {
+      setError("The call request was invalid. Please try again.");
+      leaveCall();
     }
   }, [leaveCall, send, startOffer]);
 
   const connect = useCallback(async (key: string, displayName: string, action: "create" | "join") => {
     setError("");
     intentionalLeaveRef.current = false;
+    if (reconnectTimerRef.current !== null) {
+      window.clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         // Start with the front camera when it is available. This also gives
@@ -264,6 +301,11 @@ export function useCall() {
       const configureSocket = (currentSocket: WebSocket, messageType: "create" | "join") => {
         currentSocket.onopen = () => {
           socketReconnectAttemptsRef.current = 0;
+          if (socketConnectTimerRef.current !== null) {
+            window.clearTimeout(socketConnectTimerRef.current);
+            socketConnectTimerRef.current = null;
+          }
+          startHeartbeat();
           send({
             type: messageType,
             room_key: key,
@@ -273,10 +315,20 @@ export function useCall() {
           setStatus("Waiting for your guest...");
         };
         currentSocket.onmessage = (event) => {
-          void handleSignal(JSON.parse(event.data) as SignalMessage);
+          const message = JSON.parse(event.data) as SignalMessage;
+          if (message.type === "pong") return;
+          void handleSignal(message);
         };
-        currentSocket.onerror = () => setError("Could not connect to the call server.");
+        currentSocket.onerror = () => {
+          setError("Could not connect to the call server. Please try again.");
+        };
         currentSocket.onclose = () => {
+          if (socketRef.current !== currentSocket) return;
+          stopHeartbeat();
+          if (socketConnectTimerRef.current !== null) {
+            window.clearTimeout(socketConnectTimerRef.current);
+            socketConnectTimerRef.current = null;
+          }
           if (intentionalLeaveRef.current) return;
           if (socketReconnectAttemptsRef.current >= 5) {
             leaveCall();
@@ -293,6 +345,11 @@ export function useCall() {
         };
       };
       configureSocket(socket, action);
+      socketConnectTimerRef.current = window.setTimeout(() => {
+        if (socketRef.current !== socket || socket.readyState !== WebSocket.CONNECTING) return;
+        socket.close();
+        setError("The call server is taking too long to respond. Please try again.");
+      }, 15000);
       setRoomKey(key);
       roomKeyRef.current = key;
       const initialFacingMode = stream.getVideoTracks()[0]?.getSettings().facingMode;
@@ -305,7 +362,7 @@ export function useCall() {
         ? "Camera and microphone permission are required to join."
         : "Could not start the call. Check your camera and server connection.");
     }
-  }, [handleSignal, leaveCall, send, startOffer]);
+  }, [handleSignal, leaveCall, send, startHeartbeat, startOffer, stopHeartbeat]);
 
   const toggleMute = () => {
     const track = localStreamRef.current?.getAudioTracks()[0];

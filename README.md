@@ -26,7 +26,7 @@ Callio uses three browser and network primitives:
 The signaling service is configured in [`src/constants/call.ts`](./src/constants/call.ts). The default endpoint is:
 
 ```text
-wss://api.imranlab.tech/v1/call/ws
+wss://callio-api-mufm.onrender.com/call/ws
 ```
 
 The application is the client only; the signaling server is not included in this repository.
